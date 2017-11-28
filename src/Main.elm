@@ -1,8 +1,8 @@
 module Main exposing (main)
 
 import Html exposing (..)
-import Html.Attributes exposing (type_, value)
-import Html.Events exposing (onInput, on, keyCode)
+import Html.Attributes exposing (type_, value, src)
+import Html.Events exposing (onClick, onInput, on, keyCode)
 import Http
 import Json.Decode
 import Json.Encode
@@ -23,17 +23,51 @@ type alias ButtonItem =
     }
 
 
-type alias RichMessageItem =
-    { thumbnailSrc : String
+type alias ListItem =
+    { thumbnail : Maybe String
     , description : String
+    , responseAction : String
     , responseValue : String
     }
 
 
 type Message
     = TextMessage String
-    | ListButtonMessage (List ButtonItem)
-    | ListRichMessage (List RichMessageItem)
+    | ListItemMessage String (List ListItem)
+
+
+fromDialogFlowV1Response : DialogFlowV1Response -> List Message
+fromDialogFlowV1Response response =
+    let
+        fulfillment =
+            response.result.fulfillment
+
+        attachment =
+            fulfillment.data
+                |> Maybe.andThen (\d -> d.web)
+    in
+        case attachment of
+            Just web ->
+                [ TextMessage web.text
+                , ListItemMessage web.attachment.title <|
+                    List.map
+                        (\item ->
+                            { thumbnail = item.thumbnailSrc
+                            , description = item.text
+                            , responseAction = item.responseEvent
+                            , responseValue = item.responseValue
+                            }
+                        )
+                        web.attachment.items
+                ]
+
+            Nothing ->
+                case fulfillment.displayText of
+                    Just message ->
+                        [ TextMessage message ]
+
+                    Nothing ->
+                        [ TextMessage fulfillment.speech ]
 
 
 type ConversationMessage
@@ -71,12 +105,38 @@ type alias DialogFlowV1Fulfillment =
     { speech : String
     , displayText : Maybe String
     , messages : List DialogFlowV1FulfillmentMessage
+    , data : Maybe DialogFlowV1FulfillmentData
     }
 
 
 type alias DialogFlowV1FulfillmentMessage =
     { type_ : Int
     , speech : String
+    }
+
+
+type alias DialogFlowV1FulfillmentData =
+    { web : Maybe DialogFlowV1FulfillmentWebData }
+
+
+type alias DialogFlowV1FulfillmentWebData =
+    { text : String
+    , attachment : DialogFlowV1FulfillmentWebDataAttachment
+    }
+
+
+type alias DialogFlowV1FulfillmentWebDataAttachment =
+    { type_ : String
+    , title : String
+    , items : List DialogFlowV1FulfillmentWebDataAttachmentItem
+    }
+
+
+type alias DialogFlowV1FulfillmentWebDataAttachmentItem =
+    { text : String
+    , responseEvent : String
+    , responseValue : String
+    , thumbnailSrc : Maybe String
     }
 
 
@@ -108,7 +168,7 @@ dialogFlowV1ResultDecoder =
 
 dialogFlowV1FulfillmentDecoder : Json.Decode.Decoder DialogFlowV1Fulfillment
 dialogFlowV1FulfillmentDecoder =
-    Json.Decode.map3 DialogFlowV1Fulfillment
+    Json.Decode.map4 DialogFlowV1Fulfillment
         (Json.Decode.field "speech" Json.Decode.string)
         (Json.Decode.maybe <| Json.Decode.field "displayText" Json.Decode.string)
         (Json.Decode.field "messages" <|
@@ -117,6 +177,38 @@ dialogFlowV1FulfillmentDecoder =
                     (Json.Decode.field "type" Json.Decode.int)
                     (Json.Decode.field "speech" Json.Decode.string)
         )
+        (Json.Decode.maybe <|
+            Json.Decode.field "data" <|
+                Json.Decode.map DialogFlowV1FulfillmentData <|
+                    Json.Decode.maybe
+                        (Json.Decode.field "web" dialogFlowV1FulfillmentWebDataDecoder)
+        )
+
+
+dialogFlowV1FulfillmentWebDataDecoder : Json.Decode.Decoder DialogFlowV1FulfillmentWebData
+dialogFlowV1FulfillmentWebDataDecoder =
+    Json.Decode.map2 DialogFlowV1FulfillmentWebData
+        (Json.Decode.field "text" Json.Decode.string)
+        (Json.Decode.field "attachment" dialogFlowV1FulfillmentWebDataAttachmentDecoder)
+
+
+dialogFlowV1FulfillmentWebDataAttachmentDecoder : Json.Decode.Decoder DialogFlowV1FulfillmentWebDataAttachment
+dialogFlowV1FulfillmentWebDataAttachmentDecoder =
+    Json.Decode.map3 DialogFlowV1FulfillmentWebDataAttachment
+        (Json.Decode.field "type" Json.Decode.string)
+        (Json.Decode.field "title" Json.Decode.string)
+        (Json.Decode.field "items" <|
+            Json.Decode.list dialogFlowV1FulfillmentWebDataAttachmentItemDecoder
+        )
+
+
+dialogFlowV1FulfillmentWebDataAttachmentItemDecoder : Json.Decode.Decoder DialogFlowV1FulfillmentWebDataAttachmentItem
+dialogFlowV1FulfillmentWebDataAttachmentItemDecoder =
+    Json.Decode.map4 DialogFlowV1FulfillmentWebDataAttachmentItem
+        (Json.Decode.field "text" Json.Decode.string)
+        (Json.Decode.field "responseEvent" Json.Decode.string)
+        (Json.Decode.field "responseValue" Json.Decode.string)
+        (Json.Decode.maybe <| Json.Decode.field "thumbnailSrc" Json.Decode.string)
 
 
 dialogFlowV1StatusDecoder : Json.Decode.Decoder DialogFlowV1Status
@@ -135,13 +227,12 @@ type alias Model =
     { sessionID : String
     , inputText : String
     , conversation : List ConversationMessage
-    , errorMessage : Maybe String
     }
 
 
 init : ( Model, Cmd Msg )
 init =
-    ( Model "" "" [] Nothing
+    ( Model "" "" []
     , Random.int 1 1000
         |> Random.map ((++) "SESSION_" << toString)
         |> Random.generate SetSessionID
@@ -156,6 +247,7 @@ type Msg
     = SetSessionID String
     | TypingInput String
     | InputBoxKeyDown Int
+    | SelectListItem String String
     | DialogFlowResponse (Result Http.Error DialogFlowV1Response)
 
 
@@ -185,26 +277,31 @@ update msg model =
             else
                 ( model, Cmd.none )
 
-        DialogFlowResponse (Err error) ->
-            ( { model | errorMessage = Just (errorHandler error) }, Cmd.none )
+        SelectListItem action value ->
+            ( model
+            , sendSelection accessToken "zh-HK" model.sessionID ( action, value )
+                |> Http.send DialogFlowResponse
+            )
 
-        DialogFlowResponse (Ok response) ->
+        DialogFlowResponse (Err error) ->
             let
                 responseText =
-                    case response.result.fulfillment.displayText of
-                        Just displayText ->
-                            displayText
-
-                        Nothing ->
-                            response.result.fulfillment.speech
+                    "好似有D狀況出現左，我都唔知咩野事..." ++ (errorHandler error)
 
                 botMessage =
                     ConversationMessage "Bot" (TextMessage responseText)
             in
-                ( { model
-                    | errorMessage = Nothing
-                    , conversation = model.conversation ++ [ botMessage ]
-                  }
+                ( { model | conversation = model.conversation ++ [ botMessage ] }
+                , Cmd.none
+                )
+
+        DialogFlowResponse (Ok response) ->
+            let
+                botMessages =
+                    fromDialogFlowV1Response response
+                        |> List.map (ConversationMessage "Bot")
+            in
+                ( { model | conversation = model.conversation ++ botMessages }
                 , Cmd.none
                 )
 
@@ -227,18 +324,7 @@ view model =
     div []
         [ conversationBox model.conversation
         , inputBox model.inputText
-        , errorBox model.errorMessage
         ]
-
-
-errorBox : Maybe String -> Html Msg
-errorBox maybeErrMsg =
-    case maybeErrMsg of
-        Just errorMessage ->
-            div [] [ text errorMessage ]
-
-        Nothing ->
-            div [] []
 
 
 inputBox : String -> Html Msg
@@ -248,14 +334,15 @@ inputBox inputText =
             on "keydown" (Json.Decode.map action keyCode)
     in
         div []
-            [ input
+            [ button [] [ text "Voice" ]
+            , input
                 [ type_ "text"
                 , onInput TypingInput
                 , onKeyDown InputBoxKeyDown
                 , value inputText
                 ]
                 []
-            , button [] [ text "Voice" ]
+            , button [ onClick <| InputBoxKeyDown 13 ] [ text "Send" ]
             ]
 
 
@@ -272,8 +359,8 @@ conversationMessageItem (ConversationMessage user message) =
                 TextMessage textMessage ->
                     textMessageBox textMessage
 
-                _ ->
-                    div [] [ text "Not Supported" ]
+                ListItemMessage title items ->
+                    listItemMessageBox title items
     in
         div []
             [ div [] [ text user ]
@@ -284,6 +371,25 @@ conversationMessageItem (ConversationMessage user message) =
 textMessageBox : String -> Html Msg
 textMessageBox textMessage =
     div [] [ text textMessage ]
+
+
+listItemMessageBox : String -> List ListItem -> Html Msg
+listItemMessageBox title items =
+    div [] <|
+        div [] [ text title ]
+            :: List.map listItem items
+
+
+listItem : ListItem -> Html Msg
+listItem item =
+    div []
+        [ img [ src <| Maybe.withDefault "" item.thumbnail ] []
+        , div [] [ text item.description ]
+        , button
+            [ onClick <| SelectListItem item.responseAction item.responseValue
+            ]
+            [ text "更多資料" ]
+        ]
 
 
 
@@ -310,6 +416,37 @@ sendMessage accessToken lang sessionID message =
         }
 
 
+sendSelection : String -> String -> String -> ( String, String ) -> Http.Request DialogFlowV1Response
+sendSelection accessToken lang sessionID ( responseEvent, responseValue ) =
+    Http.request
+        { method = "POST"
+        , headers = [ Http.header "Authorization" ("Bearer " ++ accessToken) ]
+        , url = "https://api.dialogflow.com/v1/query?v=20170712"
+        , body =
+            Http.stringBody "application/json; charset=utf-8" <|
+                Json.Encode.encode 0 <|
+                    Json.Encode.object
+                        [ ( "event"
+                          , Json.Encode.object
+                                [ ( "name", Json.Encode.string responseEvent )
+                                , ( "data"
+                                  , Json.Encode.object
+                                        [ ( "id"
+                                          , Json.Encode.string responseValue
+                                          )
+                                        ]
+                                  )
+                                ]
+                          )
+                        , ( "lang", Json.Encode.string lang )
+                        , ( "sessionId", Json.Encode.string sessionID )
+                        ]
+        , expect = Http.expectJson dialogFlowV1ResponseDecoder
+        , timeout = Nothing
+        , withCredentials = False
+        }
+
+
 
 -- error handling
 
@@ -324,7 +461,7 @@ errorHandler error =
             "Network error"
 
         Http.BadStatus res ->
-            "Bad Status " ++ ((toString res.status.code) ++ "::" ++ res.status.message)
+            "Bad Status: " ++ ((toString res.status.code) ++ "::" ++ res.status.message)
 
         Http.BadPayload payload res ->
             "Bad Data: " ++ payload
