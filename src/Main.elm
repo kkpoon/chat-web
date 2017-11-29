@@ -2,7 +2,7 @@ module Main exposing (main)
 
 import Dom.Scroll
 import Html exposing (..)
-import Html.Attributes exposing (id, type_, value, src, class)
+import Html.Attributes exposing (id, type_, value, src, class, style)
 import Html.Events exposing (onClick, onInput, on, keyCode)
 import Http
 import Json.Decode
@@ -21,6 +21,7 @@ accessToken =
 
 type alias ButtonItem =
     { text : String
+    , responseAction : String
     , responseValue : String
     }
 
@@ -33,9 +34,52 @@ type alias ListItem =
     }
 
 
+type alias CardMessageItem =
+    { title : String
+    , text : String
+    , thumbnailSrc : Maybe String
+    , buttons : List ButtonItem
+    }
+
+
 type Message
     = TextMessage String
     | ListItemMessage String (List ListItem)
+    | CardMessage CardMessageItem
+
+
+fromDialogFlowV1FulfillmentWebDataAttachment : DialogFlowV1FulfillmentWebDataAttachment -> List Message
+fromDialogFlowV1FulfillmentWebDataAttachment attachment =
+    case attachment of
+        WebDataListAttachment listAtt ->
+            [ ListItemMessage listAtt.title <|
+                List.map
+                    (\item ->
+                        { thumbnail = item.thumbnailSrc
+                        , description = item.text
+                        , responseAction = item.responseEvent
+                        , responseValue = item.responseValue
+                        }
+                    )
+                    listAtt.items
+            ]
+
+        WebDataCardAttachment cardAtt ->
+            [ CardMessage
+                { title = cardAtt.title
+                , text = cardAtt.text
+                , thumbnailSrc = cardAtt.thumbnailSrc
+                , buttons =
+                    cardAtt.buttons
+                        |> List.map
+                            (\bu ->
+                                ButtonItem
+                                    bu.title
+                                    bu.responseEvent
+                                    (Maybe.withDefault "" bu.responseValue)
+                            )
+                }
+            ]
 
 
 fromDialogFlowV1Response : DialogFlowV1Response -> List Message
@@ -44,24 +88,14 @@ fromDialogFlowV1Response response =
         fulfillment =
             response.result.fulfillment
 
-        attachment =
+        webdata =
             fulfillment.data
                 |> Maybe.andThen (\d -> d.web)
     in
-        case attachment of
+        case webdata of
             Just web ->
-                [ TextMessage web.text
-                , ListItemMessage web.attachment.title <|
-                    List.map
-                        (\item ->
-                            { thumbnail = item.thumbnailSrc
-                            , description = item.text
-                            , responseAction = item.responseEvent
-                            , responseValue = item.responseValue
-                            }
-                        )
-                        web.attachment.items
-                ]
+                TextMessage web.text
+                    :: fromDialogFlowV1FulfillmentWebDataAttachment web.attachment
 
             Nothing ->
                 case fulfillment.displayText of
@@ -127,18 +161,39 @@ type alias DialogFlowV1FulfillmentWebData =
     }
 
 
-type alias DialogFlowV1FulfillmentWebDataAttachment =
+type DialogFlowV1FulfillmentWebDataAttachment
+    = WebDataListAttachment DialogFlowV1FulfillmentWebDataListAttachment
+    | WebDataCardAttachment DialogFlowV1FulfillmentWebDataCardAttachment
+
+
+type alias DialogFlowV1FulfillmentWebDataListAttachment =
     { type_ : String
     , title : String
-    , items : List DialogFlowV1FulfillmentWebDataAttachmentItem
+    , items : List DialogFlowV1FulfillmentWebDataListAttachmentItem
     }
 
 
-type alias DialogFlowV1FulfillmentWebDataAttachmentItem =
+type alias DialogFlowV1FulfillmentWebDataListAttachmentItem =
     { text : String
     , responseEvent : String
     , responseValue : String
     , thumbnailSrc : Maybe String
+    }
+
+
+type alias DialogFlowV1FulfillmentWebDataCardAttachment =
+    { type_ : String
+    , title : String
+    , text : String
+    , thumbnailSrc : Maybe String
+    , buttons : List DialogFlowV1FulfillmentWebDataCardAttachmentButton
+    }
+
+
+type alias DialogFlowV1FulfillmentWebDataCardAttachmentButton =
+    { title : String
+    , responseEvent : String
+    , responseValue : Maybe String
     }
 
 
@@ -179,12 +234,13 @@ dialogFlowV1FulfillmentDecoder =
                     (Json.Decode.field "type" Json.Decode.int)
                     (Json.Decode.field "speech" Json.Decode.string)
         )
-        (Json.Decode.maybe <|
-            Json.Decode.field "data" <|
-                Json.Decode.map DialogFlowV1FulfillmentData <|
-                    Json.Decode.maybe
-                        (Json.Decode.field "web" dialogFlowV1FulfillmentWebDataDecoder)
-        )
+        (Json.Decode.maybe <| Json.Decode.field "data" dialogFlowV1FulfillmentDataDecoder)
+
+
+dialogFlowV1FulfillmentDataDecoder : Json.Decode.Decoder DialogFlowV1FulfillmentData
+dialogFlowV1FulfillmentDataDecoder =
+    Json.Decode.map DialogFlowV1FulfillmentData
+        (Json.Decode.maybe <| Json.Decode.field "web" dialogFlowV1FulfillmentWebDataDecoder)
 
 
 dialogFlowV1FulfillmentWebDataDecoder : Json.Decode.Decoder DialogFlowV1FulfillmentWebData
@@ -196,21 +252,62 @@ dialogFlowV1FulfillmentWebDataDecoder =
 
 dialogFlowV1FulfillmentWebDataAttachmentDecoder : Json.Decode.Decoder DialogFlowV1FulfillmentWebDataAttachment
 dialogFlowV1FulfillmentWebDataAttachmentDecoder =
-    Json.Decode.map3 DialogFlowV1FulfillmentWebDataAttachment
+    Json.Decode.field "type" Json.Decode.string
+        |> Json.Decode.andThen
+            (\attType ->
+                case attType of
+                    "LIST" ->
+                        Json.Decode.map
+                            WebDataListAttachment
+                            dialogFlowV1FulfillmentWebDataListAttachmentDecoder
+
+                    "CARD" ->
+                        Json.Decode.map
+                            WebDataCardAttachment
+                            dialogFlowV1FulfillmentWebDataCardAttachmentDecoder
+
+                    _ ->
+                        Json.Decode.fail "Invalid attachment type"
+            )
+
+
+dialogFlowV1FulfillmentWebDataListAttachmentDecoder : Json.Decode.Decoder DialogFlowV1FulfillmentWebDataListAttachment
+dialogFlowV1FulfillmentWebDataListAttachmentDecoder =
+    Json.Decode.map3 DialogFlowV1FulfillmentWebDataListAttachment
         (Json.Decode.field "type" Json.Decode.string)
         (Json.Decode.field "title" Json.Decode.string)
         (Json.Decode.field "items" <|
-            Json.Decode.list dialogFlowV1FulfillmentWebDataAttachmentItemDecoder
+            Json.Decode.list dialogFlowV1FulfillmentWebDataListAttachmentItemDecoder
         )
 
 
-dialogFlowV1FulfillmentWebDataAttachmentItemDecoder : Json.Decode.Decoder DialogFlowV1FulfillmentWebDataAttachmentItem
-dialogFlowV1FulfillmentWebDataAttachmentItemDecoder =
-    Json.Decode.map4 DialogFlowV1FulfillmentWebDataAttachmentItem
+dialogFlowV1FulfillmentWebDataListAttachmentItemDecoder : Json.Decode.Decoder DialogFlowV1FulfillmentWebDataListAttachmentItem
+dialogFlowV1FulfillmentWebDataListAttachmentItemDecoder =
+    Json.Decode.map4 DialogFlowV1FulfillmentWebDataListAttachmentItem
         (Json.Decode.field "text" Json.Decode.string)
         (Json.Decode.field "responseEvent" Json.Decode.string)
         (Json.Decode.field "responseValue" Json.Decode.string)
         (Json.Decode.maybe <| Json.Decode.field "thumbnailSrc" Json.Decode.string)
+
+
+dialogFlowV1FulfillmentWebDataCardAttachmentDecoder : Json.Decode.Decoder DialogFlowV1FulfillmentWebDataCardAttachment
+dialogFlowV1FulfillmentWebDataCardAttachmentDecoder =
+    Json.Decode.map5 DialogFlowV1FulfillmentWebDataCardAttachment
+        (Json.Decode.field "type" Json.Decode.string)
+        (Json.Decode.field "title" Json.Decode.string)
+        (Json.Decode.field "text" Json.Decode.string)
+        (Json.Decode.maybe <| Json.Decode.field "thumbnailSrc" Json.Decode.string)
+        (Json.Decode.field "buttons" <|
+            Json.Decode.list dialogFlowV1FulfillmentWebDataCardAttachmentButtonDecoder
+        )
+
+
+dialogFlowV1FulfillmentWebDataCardAttachmentButtonDecoder : Json.Decode.Decoder DialogFlowV1FulfillmentWebDataCardAttachmentButton
+dialogFlowV1FulfillmentWebDataCardAttachmentButtonDecoder =
+    Json.Decode.map3 DialogFlowV1FulfillmentWebDataCardAttachmentButton
+        (Json.Decode.field "title" Json.Decode.string)
+        (Json.Decode.field "responseEvent" Json.Decode.string)
+        (Json.Decode.maybe <| Json.Decode.field "responseValue" Json.Decode.string)
 
 
 dialogFlowV1StatusDecoder : Json.Decode.Decoder DialogFlowV1Status
@@ -250,7 +347,7 @@ type Msg
     | NoOp
     | TypingInput String
     | InputBoxKeyDown Int
-    | SelectListItem String String
+    | SendResponseAction String String
     | DialogFlowResponse (Result Http.Error DialogFlowV1Response)
 
 
@@ -283,7 +380,7 @@ update msg model =
             else
                 ( model, Cmd.none )
 
-        SelectListItem action value ->
+        SendResponseAction action value ->
             ( model
             , sendSelection accessToken "zh-HK" model.sessionID ( action, value )
                 |> Http.send DialogFlowResponse
@@ -327,7 +424,7 @@ subscriptions model =
 
 view : Model -> Html Msg
 view model =
-    div [ class "w-50 mw7 center bg-gray pa3 flex flex-column justify-end vh-100" ]
+    div [ class "w-50 mw7 center bg-light-gray pa3 flex flex-column justify-end vh-100" ]
         [ conversationBox model.conversation
         , inputBox model.inputText
         ]
@@ -340,7 +437,7 @@ inputBox inputText =
             on "keydown" (Json.Decode.map action keyCode)
 
         voiceControlStyleClass =
-            "button-reset pa3 tc bn pointer lh-solid w-20 br2 br--left"
+            "button-reset pa3 tc bn pointer lh-solid w-20 br2 br--left bg-gray white"
 
         sendControlStyleClass =
             "button-reset pa3 tc bn pointer lh-solid w-20 br2 br--right bg-black-80 white"
@@ -349,7 +446,8 @@ inputBox inputText =
             "f6 f5-l input-reset bn black-80 bg-white pa3 lh-solid w-60"
     in
         div []
-            [ button [ class voiceControlStyleClass ] [ text "Voice" ]
+            [ button [ class voiceControlStyleClass ]
+                [ i [ class "fa fa-microphone" ] [] ]
             , input
                 [ type_ "text"
                 , class inputBoxStyleClass
@@ -386,10 +484,20 @@ conversationMessageItem (ConversationMessage user message) =
 
                 ListItemMessage title items ->
                     listItemMessageBox title items
+
+                CardMessage item ->
+                    cardMessageBox item
+
+        boxStyle =
+            case user of
+                "Me" ->
+                    "fr br4 bg-silver pv2 ph3"
+
+                _ ->
+                    "fl br4 bg-moon-gray pv2 ph3"
     in
-        div []
-            [ div [] [ text user ]
-            , div [] [ messageBox ]
+        div [ class "fl w-100 db mv2" ]
+            [ div [ class boxStyle ] [ messageBox ]
             ]
 
 
@@ -407,14 +515,53 @@ listItemMessageBox title items =
 
 listItem : ListItem -> Html Msg
 listItem item =
-    div []
-        [ img [ src <| Maybe.withDefault "" item.thumbnail ] []
-        , div [] [ text item.description ]
-        , button
-            [ onClick <| SelectListItem item.responseAction item.responseValue
+    let
+        thumbnail =
+            case item.thumbnail of
+                Just data ->
+                    img
+                        [ src data
+                        , class "ba b--black-10 db br2 w2 w3-ns h2 h3-ns"
+                        ]
+                        []
+
+                Nothing ->
+                    div [ class "tc" ] [ i [ class "fa fa-cutlery fa-4x" ] [] ]
+    in
+        div [ class "dt w-100 bb b--black-05 pb2 mt2" ]
+            [ div [ class "dtc w2 w3-ns v-mid" ] [ thumbnail ]
+            , div [ class "dtc v-top pl3" ]
+                [ div [ class "db" ] [ text item.description ]
+                , button
+                    [ onClick <| SendResponseAction item.responseAction item.responseValue
+                    , class inlineButtonStyle
+                    ]
+                    [ text "更多資料" ]
+                ]
             ]
-            [ text "更多資料" ]
+
+
+cardMessageBox : CardMessageItem -> Html Msg
+cardMessageBox item =
+    div [] <|
+        [ div [] [ text item.title ]
+        , div [] [ text item.text ]
+        , div [ class "pt2" ] <| List.map cardMessageButton item.buttons
         ]
+
+
+cardMessageButton : ButtonItem -> Html Msg
+cardMessageButton item =
+    button
+        [ onClick <| SendResponseAction item.responseAction item.responseValue
+        , class inlineButtonStyle
+        ]
+        [ text item.text ]
+
+
+inlineButtonStyle : String
+inlineButtonStyle =
+    "f6 dib button-reset ma2 pa2 tc bn pointer br2 bg-light-gray"
 
 
 
