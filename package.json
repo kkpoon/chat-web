@@ -1,0 +1,29 @@
+{
+  "name": "chat-web",
+  "version": "1.0.0",
+  "description": "This is a reference implementation to use DialogFlow API from elm",
+  "private": true,
+  "scripts": {
+    "build": "webpack",
+    "watch": "webpack --watch",
+    "dist": "webpack -p",
+    "start": "mkdir -p public/lib && webpack-dev-server",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kkpoon/chat-web.git"
+  },
+  "author": "kkpoon <noopkk@gmail.com>",
+  "license": "UNLICENSED",
+  "bugs": {
+    "url": "https://github.com/kkpoon/chat-web/issues"
+  },
+  "homepage": "https://github.com/kkpoon/chat-web#readme",
+  "devDependencies": {
+    "elm": "~0.18.0",
+    "elm-webpack-loader": "^4.4.0",
+    "webpack": "^3.8.1",
+    "webpack-dev-server": "^2.9.5"
+  }
+}

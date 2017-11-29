@@ -1,12 +1,14 @@
 module Main exposing (main)
 
+import Dom.Scroll
 import Html exposing (..)
-import Html.Attributes exposing (type_, value, src)
+import Html.Attributes exposing (id, type_, value, src, class)
 import Html.Events exposing (onClick, onInput, on, keyCode)
 import Http
 import Json.Decode
 import Json.Encode
 import Random
+import Task
 
 
 -- data
@@ -245,6 +247,7 @@ init =
 
 type Msg
     = SetSessionID String
+    | NoOp
     | TypingInput String
     | InputBoxKeyDown Int
     | SelectListItem String String
@@ -256,6 +259,9 @@ update msg model =
     case msg of
         SetSessionID sessionID ->
             ( { model | sessionID = sessionID }, Cmd.none )
+
+        NoOp ->
+            ( model, Cmd.none )
 
         TypingInput inputText ->
             ( { model | inputText = inputText }, Cmd.none )
@@ -292,7 +298,7 @@ update msg model =
                     ConversationMessage "Bot" (TextMessage responseText)
             in
                 ( { model | conversation = model.conversation ++ [ botMessage ] }
-                , Cmd.none
+                , Task.attempt (always NoOp) <| Dom.Scroll.toBottom "conversationBox"
                 )
 
         DialogFlowResponse (Ok response) ->
@@ -302,7 +308,7 @@ update msg model =
                         |> List.map (ConversationMessage "Bot")
             in
                 ( { model | conversation = model.conversation ++ botMessages }
-                , Cmd.none
+                , Task.attempt (always NoOp) <| Dom.Scroll.toBottom "conversationBox"
                 )
 
 
@@ -321,7 +327,7 @@ subscriptions model =
 
 view : Model -> Html Msg
 view model =
-    div []
+    div [ class "w-50 mw7 center bg-gray pa3 flex flex-column justify-end vh-100" ]
         [ conversationBox model.conversation
         , inputBox model.inputText
         ]
@@ -332,23 +338,42 @@ inputBox inputText =
     let
         onKeyDown action =
             on "keydown" (Json.Decode.map action keyCode)
+
+        voiceControlStyleClass =
+            "button-reset pa3 tc bn pointer lh-solid w-20 br2 br--left"
+
+        sendControlStyleClass =
+            "button-reset pa3 tc bn pointer lh-solid w-20 br2 br--right bg-black-80 white"
+
+        inputBoxStyleClass =
+            "f6 f5-l input-reset bn black-80 bg-white pa3 lh-solid w-60"
     in
         div []
-            [ button [] [ text "Voice" ]
+            [ button [ class voiceControlStyleClass ] [ text "Voice" ]
             , input
                 [ type_ "text"
+                , class inputBoxStyleClass
                 , onInput TypingInput
                 , onKeyDown InputBoxKeyDown
                 , value inputText
                 ]
                 []
-            , button [ onClick <| InputBoxKeyDown 13 ] [ text "Send" ]
+            , button
+                [ class sendControlStyleClass
+                , onClick <| InputBoxKeyDown 13
+                ]
+                [ text "Send" ]
             ]
 
 
 conversationBox : List ConversationMessage -> Html Msg
 conversationBox messages =
-    div [] <| List.map conversationMessageItem messages
+    div
+        [ id "conversationBox"
+        , class "h-100 overflow-auto"
+        ]
+    <|
+        List.map conversationMessageItem messages
 
 
 conversationMessageItem : ConversationMessage -> Html Msg
