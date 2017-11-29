@@ -1,14 +1,30 @@
-module Main exposing (main)
+port module Main exposing (main)
 
 import Dom.Scroll
 import Html exposing (..)
-import Html.Attributes exposing (id, type_, value, src, class, style)
+import Html.Attributes exposing (id, type_, value, src, class, style, disabled)
 import Html.Events exposing (onClick, onInput, on, keyCode)
 import Http
 import Json.Decode
 import Json.Encode
 import Random
 import Task
+
+
+-- ports
+
+
+port startVoiceTyping : () -> Cmd a
+
+
+port stopVoiceTyping : () -> Cmd a
+
+
+port voiceTyping : (String -> msg) -> Sub msg
+
+
+port updateVoiceTypingStatus : (Bool -> msg) -> Sub msg
+
 
 
 -- data
@@ -323,15 +339,22 @@ dialogFlowV1StatusDecoder =
 
 
 type alias Model =
-    { sessionID : String
+    { hasVoiceTyping : Bool
+    , voiceTypingEnabled : Bool
+    , sessionID : String
     , inputText : String
     , conversation : List ConversationMessage
     }
 
 
-init : ( Model, Cmd Msg )
-init =
-    ( Model "" "" []
+type alias Flags =
+    { hasSpeechRecognition : Bool
+    }
+
+
+init : Flags -> ( Model, Cmd Msg )
+init flags =
+    ( Model flags.hasSpeechRecognition False "" "" []
     , Random.int 1 1000
         |> Random.map ((++) "SESSION_" << toString)
         |> Random.generate SetSessionID
@@ -346,7 +369,10 @@ type Msg
     = SetSessionID String
     | NoOp
     | TypingInput String
+    | VoiceTypingInput String
     | InputBoxKeyDown Int
+    | ToggleVoiceTyping
+    | UpdateVoiceTypingStatus Bool
     | SendResponseAction String String
     | DialogFlowResponse (Result Http.Error DialogFlowV1Response)
 
@@ -362,6 +388,9 @@ update msg model =
 
         TypingInput inputText ->
             ( { model | inputText = inputText }, Cmd.none )
+
+        VoiceTypingInput inputText ->
+            ( { model | inputText = model.inputText ++ inputText }, Cmd.none )
 
         InputBoxKeyDown code ->
             -- when user hit enter
@@ -379,6 +408,22 @@ update msg model =
                     )
             else
                 ( model, Cmd.none )
+
+        ToggleVoiceTyping ->
+            let
+                toEnable =
+                    not model.voiceTypingEnabled
+
+                cmd =
+                    if toEnable then
+                        startVoiceTyping ()
+                    else
+                        stopVoiceTyping ()
+            in
+                ( model, cmd )
+
+        UpdateVoiceTypingStatus enabled ->
+            ( { model | voiceTypingEnabled = enabled }, Cmd.none )
 
         SendResponseAction action value ->
             ( model
@@ -415,7 +460,10 @@ update msg model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Sub.none
+    Sub.batch
+        [ voiceTyping VoiceTypingInput
+        , updateVoiceTypingStatus UpdateVoiceTypingStatus
+        ]
 
 
 
@@ -426,28 +474,46 @@ view : Model -> Html Msg
 view model =
     div [ class "w-50 mw7 center bg-light-gray pa3 flex flex-column justify-end vh-100" ]
         [ conversationBox model.conversation
-        , inputBox model.inputText
+        , inputBox model.hasVoiceTyping model.voiceTypingEnabled model.inputText
         ]
 
 
-inputBox : String -> Html Msg
-inputBox inputText =
+inputBox : Bool -> Bool -> String -> Html Msg
+inputBox hasVoiceTyping voiceTypingEnabled inputText =
     let
         onKeyDown action =
             on "keydown" (Json.Decode.map action keyCode)
 
         voiceControlStyleClass =
-            "button-reset pa3 tc bn pointer lh-solid w-20 br2 br--left bg-gray white"
+            case ( hasVoiceTyping, voiceTypingEnabled ) of
+                ( True, True ) ->
+                    "button-reset pa3 tc bn pointer lh-solid w-20 br2 br--left bg-red black"
+
+                ( True, False ) ->
+                    "button-reset pa3 tc bn pointer lh-solid w-20 br2 br--left bg-silver black"
+
+                _ ->
+                    "button-reset pa3 tc bn pointer lh-solid w-20 br2 br--left bg-near-white gray"
 
         sendControlStyleClass =
             "button-reset pa3 tc bn pointer lh-solid w-20 br2 br--right bg-black-80 white"
 
         inputBoxStyleClass =
             "f6 f5-l input-reset bn black-80 bg-white pa3 lh-solid w-60"
+
+        voiceIcon =
+            if hasVoiceTyping then
+                i [ class "fa fa-microphone" ] []
+            else
+                i [ class "fa fa-microphone-slash" ] []
     in
         div []
-            [ button [ class voiceControlStyleClass ]
-                [ i [ class "fa fa-microphone" ] [] ]
+            [ button
+                [ class voiceControlStyleClass
+                , onClick ToggleVoiceTyping
+                , disabled <| not hasVoiceTyping
+                ]
+                [ voiceIcon ]
             , input
                 [ type_ "text"
                 , class inputBoxStyleClass
@@ -646,9 +712,9 @@ errorHandler error =
 -- main
 
 
-main : Program Never Model Msg
+main : Program Flags Model Msg
 main =
-    Html.program
+    Html.programWithFlags
         { init = init
         , view = view
         , update = update

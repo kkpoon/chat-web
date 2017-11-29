@@ -6,15 +6,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
     <title>Chat</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tachyons/4.9.0/tachyons.min.css" integrity="sha256-6EocT7D+UyRPq5Khj7F+ETTOtff4NmFerAKPQGQ54Yo=" crossorigin="anonymous" />
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha256-eZrrJcwDc/3uDhsdt61sL2oOBY362qM3lon1gyExkL0=" crossorigin="anonymous" />
-    <link href="https://fonts.googleapis.com/css?family=Open+Sans" rel="stylesheet"> 
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tachyons/4.9.0/tachyons.min.css" integrity="sha256-6EocT7D+UyRPq5Khj7F+ETTOtff4NmFerAKPQGQ54Yo="
+        crossorigin="anonymous" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha256-eZrrJcwDc/3uDhsdt61sL2oOBY362qM3lon1gyExkL0="
+        crossorigin="anonymous" />
+    <link href="https://fonts.googleapis.com/css?family=Open+Sans" rel="stylesheet">
     <style>
         body {
             font-family: 'Open Sans', sans-serif;
         }
 
-        button:focus, input:focus {
+        button:focus,
+        input:focus {
             outline: 0;
         }
     </style>
@@ -23,7 +26,47 @@
 <body>
     <script src="lib/main.js"></script>
     <script>
-        var app = Elm.Main.fullscreen();
+        var recognition = null;
+
+        var app = Elm.Main.fullscreen({
+            hasSpeechRecognition: window.hasOwnProperty("webkitSpeechRecognition")
+        });
+
+        function stopRecognition() {
+            if (recognition) {
+                recognition.stop();
+                recognition = null;
+            }
+            app.ports.updateVoiceTypingStatus.send(false);
+        }
+
+        app.ports.startVoiceTyping.subscribe(function () {
+            recognition = new webkitSpeechRecognition();
+
+            recognition.onstart = function (event) {
+                updateRec();
+            };
+            recognition.onresult = function (e) {
+                app.ports.voiceTyping.send(e.results[0][0].transcript);
+                stopRecognition();
+            };
+            recognition.onerror = function (e) {
+                stopRecognition();
+            };
+            recognition.onend = function () {
+                stopRecognition();
+            };
+
+            recognition.continuous = false;
+            recognition.interimResults = false;
+            recognition.lang = "zh-HK";
+            recognition.start();
+            app.ports.updateVoiceTypingStatus.send(true);
+        });
+
+        app.ports.stopVoiceTyping.subscribe(function() {
+            stopRecognition();
+        });
     </script>
 </body>
 
