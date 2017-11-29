@@ -53,7 +53,7 @@ type alias ListItem =
 type alias CardMessageItem =
     { title : String
     , text : String
-    , thumbnailSrc : Maybe String
+    , thumbnail : Maybe String
     , buttons : List ButtonItem
     }
 
@@ -84,7 +84,7 @@ fromDialogFlowV1FulfillmentWebDataAttachment attachment =
             [ CardMessage
                 { title = cardAtt.title
                 , text = cardAtt.text
-                , thumbnailSrc = cardAtt.thumbnailSrc
+                , thumbnail = cardAtt.thumbnailSrc
                 , buttons =
                     cardAtt.buttons
                         |> List.map
@@ -609,11 +609,25 @@ listItem item =
 
 cardMessageBox : CardMessageItem -> Html Msg
 cardMessageBox item =
-    div [] <|
-        [ div [] [ text item.title ]
-        , div [] [ text item.text ]
-        , div [ class "pt2" ] <| List.map cardMessageButton item.buttons
-        ]
+    let
+        thumbnail =
+            case item.thumbnail of
+                Just data ->
+                    img
+                        [ src data
+                        , class "ba b--black-10 db br2 w2 w3-ns h2 h3-ns"
+                        ]
+                        []
+
+                Nothing ->
+                    div [] []
+    in
+        div [] <|
+            [ div [ class "fr" ] [ thumbnail ]
+            , h4 [] [ text item.title ]
+            , div [] [ text item.text ]
+            , div [ class "pt2" ] <| List.map cardMessageButton item.buttons
+            ]
 
 
 cardMessageButton : ButtonItem -> Html Msg
