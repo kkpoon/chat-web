@@ -472,7 +472,7 @@ subscriptions model =
 
 view : Model -> Html Msg
 view model =
-    div [ class "w-50 mw7 center bg-light-gray pa3 flex flex-column justify-end vh-100" ]
+    div [ class "w-100 w-50-l mw7-l center bg-light-gray pa3 flex flex-column justify-end vh-100" ]
         [ conversationBox model.conversation
         , inputBox model.hasVoiceTyping model.voiceTypingEnabled model.inputText
         ]
@@ -526,7 +526,7 @@ inputBox hasVoiceTyping voiceTypingEnabled inputText =
                 [ class sendControlStyleClass
                 , onClick <| InputBoxKeyDown 13
                 ]
-                [ text "Send" ]
+                [ i [ class "fa fa-arrow-right" ] [] ]
             ]
 
 
