@@ -6,7 +6,7 @@
   "scripts": {
     "build": "webpack",
     "watch": "webpack --watch",
-    "dist": "webpack -p",
+    "dist": "webpack -p --config webpack.config.prod.js",
     "start": "mkdir -p public/lib && webpack-dev-server",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
