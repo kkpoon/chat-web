@@ -33,6 +33,67 @@ port updateVoiceTypingStatus : (Bool -> msg) -> Sub msg
 -- data
 
 
+type Language
+    = En
+    | Zh_HK
+    | Zh_TW
+    | Zh_CN
+
+
+languageString : Language -> String
+languageString lang =
+    case lang of
+        En ->
+            "en"
+
+        Zh_HK ->
+            "zh-HK"
+
+        Zh_TW ->
+            "zh-TW"
+
+        Zh_CN ->
+            "zh-CN"
+
+
+languageDisplayText : Language -> String
+languageDisplayText lang =
+    case lang of
+        En ->
+            "English"
+
+        Zh_HK ->
+            "中文(香港)"
+
+        Zh_TW ->
+            "中文(台灣)"
+
+        Zh_CN ->
+            "中文(大陸)"
+
+
+i18nText : Language -> String -> String
+i18nText lang text =
+    case ( text, lang ) of
+        ( "more", Zh_HK ) ->
+            "更多資料"
+
+        ( "more", Zh_TW ) ->
+            "更多資料"
+
+        ( "more", Zh_CN ) ->
+            "更多资料"
+
+        ( "Unknown error...", Zh_HK ) ->
+            "好似有D狀況出現左，我都唔知咩野事..."
+
+        ( "Unknown error...", Zh_TW ) ->
+            "有一點狀況出現了，但我不知道發生了什麽問題..."
+
+        _ ->
+            text
+
+
 type alias ButtonItem =
     { text : String
     , responseAction : String
@@ -332,45 +393,6 @@ dialogFlowV1StatusDecoder =
         (Json.Decode.field "webhookTimedOut" Json.Decode.bool)
 
 
-type Language
-    = En
-    | Zh_HK
-    | Zh_TW
-    | Zh_CN
-
-
-languageString : Language -> String
-languageString lang =
-    case lang of
-        En ->
-            "en"
-
-        Zh_HK ->
-            "zh-HK"
-
-        Zh_TW ->
-            "zh-TW"
-
-        Zh_CN ->
-            "zh-CN"
-
-
-languageDisplayText : Language -> String
-languageDisplayText lang =
-    case lang of
-        En ->
-            "English"
-
-        Zh_HK ->
-            "中文(香港)"
-
-        Zh_TW ->
-            "中文(台灣)"
-
-        Zh_CN ->
-            "中文(大陸)"
-
-
 
 -- model
 
@@ -484,7 +506,7 @@ update msg model =
         DialogFlowResponse (Err error) ->
             let
                 responseText =
-                    "好似有D狀況出現左，我都唔知咩野事..." ++ (errorHandler error)
+                    (i18nText model.language "Unknown error...") ++ (errorHandler error)
 
                 botMessage =
                     ConversationMessage "Bot" (TextMessage responseText)
@@ -524,7 +546,7 @@ view : Model -> Html Msg
 view model =
     div [ class "w-100 w-50-l mw7-l center bg-light-gray pa3 flex flex-column justify-end vh-100" ]
         [ languageBar model.language
-        , conversationBox model.conversation
+        , conversationBox model.language model.conversation
         , inputBox model.hasVoiceTyping model.voiceTypingEnabled model.inputText
         ]
 
@@ -607,18 +629,18 @@ inputBox hasVoiceTyping voiceTypingEnabled inputText =
             ]
 
 
-conversationBox : List ConversationMessage -> Html Msg
-conversationBox messages =
+conversationBox : Language -> List ConversationMessage -> Html Msg
+conversationBox lang messages =
     div
         [ id "conversationBox"
         , class "h-100 overflow-auto"
         ]
     <|
-        List.map conversationMessageItem messages
+        List.map (conversationMessageItem lang) messages
 
 
-conversationMessageItem : ConversationMessage -> Html Msg
-conversationMessageItem (ConversationMessage user message) =
+conversationMessageItem : Language -> ConversationMessage -> Html Msg
+conversationMessageItem lang (ConversationMessage user message) =
     let
         messageBox =
             case message of
@@ -626,7 +648,7 @@ conversationMessageItem (ConversationMessage user message) =
                     textMessageBox textMessage
 
                 ListItemMessage title items ->
-                    listItemMessageBox title items
+                    listItemMessageBox lang title items
 
                 CardMessage item ->
                     cardMessageBox item
@@ -649,15 +671,15 @@ textMessageBox textMessage =
     div [] [ text textMessage ]
 
 
-listItemMessageBox : String -> List ListItem -> Html Msg
-listItemMessageBox title items =
+listItemMessageBox : Language -> String -> List ListItem -> Html Msg
+listItemMessageBox lang title items =
     div [] <|
         div [] [ text title ]
-            :: List.map listItem items
+            :: List.map (listItem lang) items
 
 
-listItem : ListItem -> Html Msg
-listItem item =
+listItem : Language -> ListItem -> Html Msg
+listItem lang item =
     let
         thumbnail =
             case item.thumbnail of
@@ -679,7 +701,7 @@ listItem item =
                     [ onClick <| SendResponseAction item.responseAction item.responseValue
                     , class inlineButtonStyle
                     ]
-                    [ text "更多資料" ]
+                    [ text <| i18nText lang "more" ]
                 ]
             ]
 
