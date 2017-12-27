@@ -27,8 +27,10 @@
     <script src="lib/main.js"></script>
     <script>
         var recognition = null;
+        var language = "en-US";
 
         var app = Elm.Main.fullscreen({
+            accessToken: "your-dialogflow-access-token",
             hasSpeechRecognition: window.hasOwnProperty("webkitSpeechRecognition")
         });
 
@@ -59,12 +61,20 @@
 
             recognition.continuous = false;
             recognition.interimResults = false;
-            recognition.lang = "zh-HK";
+            recognition.lang = language || "en-US";
             recognition.start();
             app.ports.updateVoiceTypingStatus.send(true);
         });
 
         app.ports.stopVoiceTyping.subscribe(function() {
+            stopRecognition();
+        });
+
+        app.ports.switchLanguage.subscribe(function(lang) {
+            if (lang === "en") {
+                lang = "en-US";
+            }
+            language = lang;
             stopRecognition();
         });
     </script>

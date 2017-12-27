@@ -20,6 +20,9 @@ port startVoiceTyping : () -> Cmd a
 port stopVoiceTyping : () -> Cmd a
 
 
+port switchLanguage : String -> Cmd a
+
+
 port voiceTyping : (String -> msg) -> Sub msg
 
 
@@ -28,11 +31,6 @@ port updateVoiceTypingStatus : (Bool -> msg) -> Sub msg
 
 
 -- data
-
-
-accessToken : String
-accessToken =
-    ""
 
 
 type alias ButtonItem =
@@ -334,14 +332,55 @@ dialogFlowV1StatusDecoder =
         (Json.Decode.field "webhookTimedOut" Json.Decode.bool)
 
 
+type Language
+    = En
+    | Zh_HK
+    | Zh_TW
+    | Zh_CN
+
+
+languageString : Language -> String
+languageString lang =
+    case lang of
+        En ->
+            "en"
+
+        Zh_HK ->
+            "zh-HK"
+
+        Zh_TW ->
+            "zh-TW"
+
+        Zh_CN ->
+            "zh-CN"
+
+
+languageDisplayText : Language -> String
+languageDisplayText lang =
+    case lang of
+        En ->
+            "English"
+
+        Zh_HK ->
+            "中文(香港)"
+
+        Zh_TW ->
+            "中文(台灣)"
+
+        Zh_CN ->
+            "中文(大陸)"
+
+
 
 -- model
 
 
 type alias Model =
-    { hasVoiceTyping : Bool
+    { accessToken : String
+    , hasVoiceTyping : Bool
     , voiceTypingEnabled : Bool
     , sessionID : String
+    , language : Language
     , inputText : String
     , conversation : List ConversationMessage
     }
@@ -349,12 +388,13 @@ type alias Model =
 
 type alias Flags =
     { hasSpeechRecognition : Bool
+    , accessToken : String
     }
 
 
 init : Flags -> ( Model, Cmd Msg )
 init flags =
-    ( Model flags.hasSpeechRecognition False "" "" []
+    ( Model flags.accessToken flags.hasSpeechRecognition False "" En "" []
     , Random.int 1 1000
         |> Random.map ((++) "SESSION_" << toString)
         |> Random.generate SetSessionID
@@ -373,6 +413,7 @@ type Msg
     | InputBoxKeyDown Int
     | ToggleVoiceTyping
     | UpdateVoiceTypingStatus Bool
+    | SwitchLanguage Language
     | SendResponseAction String String
     | DialogFlowResponse (Result Http.Error DialogFlowV1Response)
 
@@ -403,7 +444,11 @@ update msg model =
                         | inputText = ""
                         , conversation = model.conversation ++ [ userMessage ]
                       }
-                    , sendMessage accessToken "zh-HK" model.sessionID model.inputText
+                    , sendMessage
+                        model.accessToken
+                        (languageString model.language)
+                        model.sessionID
+                        model.inputText
                         |> Http.send DialogFlowResponse
                     )
             else
@@ -425,9 +470,14 @@ update msg model =
         UpdateVoiceTypingStatus enabled ->
             ( { model | voiceTypingEnabled = enabled }, Cmd.none )
 
+        SwitchLanguage lang ->
+            ( { model | language = lang }
+            , switchLanguage <| languageString lang
+            )
+
         SendResponseAction action value ->
             ( model
-            , sendSelection accessToken "zh-HK" model.sessionID ( action, value )
+            , sendSelection model.accessToken "zh-HK" model.sessionID ( action, value )
                 |> Http.send DialogFlowResponse
             )
 
@@ -473,9 +523,36 @@ subscriptions model =
 view : Model -> Html Msg
 view model =
     div [ class "w-100 w-50-l mw7-l center bg-light-gray pa3 flex flex-column justify-end vh-100" ]
-        [ conversationBox model.conversation
+        [ languageBar model.language
+        , conversationBox model.conversation
         , inputBox model.hasVoiceTyping model.voiceTypingEnabled model.inputText
         ]
+
+
+languageBar : Language -> Html Msg
+languageBar lang =
+    div [ class "bg-black-30 tc" ]
+        [ languageButton En (lang == En)
+        , languageButton Zh_HK (lang == Zh_HK)
+        , languageButton Zh_TW (lang == Zh_TW)
+        , languageButton Zh_CN (lang == Zh_CN)
+        ]
+
+
+languageButton : Language -> Bool -> Html Msg
+languageButton lang active =
+    let
+        buttonClass =
+            if active then
+                "button-reset bn pointer w-20 tc lh-solid br2 ma2 pa2 dib white bg-black"
+            else
+                "button-reset bn pointer w-20 tc lh-solid br2 ma2 pa2 dib black bg-grey"
+    in
+        button
+            [ class buttonClass
+            , onClick <| SwitchLanguage lang
+            ]
+            [ text <| languageDisplayText lang ]
 
 
 inputBox : Bool -> Bool -> String -> Html Msg

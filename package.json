@@ -15,7 +15,7 @@
     "url": "git+https://github.com/kkpoon/chat-web.git"
   },
   "author": "kkpoon <noopkk@gmail.com>",
-  "license": "UNLICENSED",
+  "license": "BSD-3-Clause",
   "bugs": {
     "url": "https://github.com/kkpoon/chat-web/issues"
   },
