@@ -499,7 +499,7 @@ update msg model =
 
         SendResponseAction action value ->
             ( model
-            , sendSelection model.accessToken "zh-HK" model.sessionID ( action, value )
+            , sendSelection model.accessToken (languageString model.language) model.sessionID ( action, value )
                 |> Http.send DialogFlowResponse
             )
 
