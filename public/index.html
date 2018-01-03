@@ -46,7 +46,7 @@
             recognition = new webkitSpeechRecognition();
 
             recognition.onstart = function (event) {
-                updateRec();
+                app.ports.updateVoiceTypingStatus.send(true);
             };
             recognition.onresult = function (e) {
                 app.ports.voiceTyping.send(e.results[0][0].transcript);
@@ -63,7 +63,6 @@
             recognition.interimResults = false;
             recognition.lang = language || "en-US";
             recognition.start();
-            app.ports.updateVoiceTypingStatus.send(true);
         });
 
         app.ports.stopVoiceTyping.subscribe(function() {

@@ -173,12 +173,7 @@ fromDialogFlowV1Response response =
                     :: fromDialogFlowV1FulfillmentWebDataAttachment web.attachment
 
             Nothing ->
-                case fulfillment.displayText of
-                    Just message ->
-                        [ TextMessage message ]
-
-                    Nothing ->
-                        [ TextMessage fulfillment.speech ]
+                List.map (\m -> TextMessage m.speech) fulfillment.messages
 
 
 type ConversationMessage
