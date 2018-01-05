@@ -452,7 +452,7 @@ update msg model =
 
         InputBoxKeyDown code ->
             -- when user hit enter
-            if code == 13 then
+            if code == 13 && (not (String.isEmpty model.inputText)) then
                 let
                     userMessage =
                         ConversationMessage "Me" (TextMessage model.inputText)
