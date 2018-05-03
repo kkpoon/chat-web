@@ -203,7 +203,6 @@ type alias DialogFlowV1Result =
 type alias DialogFlowV1Status =
     { code : Int
     , errorType : String
-    , webhookTimedOut : Bool
     }
 
 
@@ -382,10 +381,9 @@ dialogFlowV1FulfillmentWebDataCardAttachmentButtonDecoder =
 
 dialogFlowV1StatusDecoder : Json.Decode.Decoder DialogFlowV1Status
 dialogFlowV1StatusDecoder =
-    Json.Decode.map3 DialogFlowV1Status
+    Json.Decode.map2 DialogFlowV1Status
         (Json.Decode.field "code" Json.Decode.int)
         (Json.Decode.field "errorType" Json.Decode.string)
-        (Json.Decode.field "webhookTimedOut" Json.Decode.bool)
 
 
 
