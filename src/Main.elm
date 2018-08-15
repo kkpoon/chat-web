@@ -157,14 +157,11 @@ fromDialogFlowV1FulfillmentWebDataAttachment attachment =
             ]
 
 
-fromDialogFlowV1Response : DialogFlowV1Response -> List Message
-fromDialogFlowV1Response response =
+fromDialogFlowV2Response : DialogFlowV2Response -> List Message
+fromDialogFlowV2Response response =
     let
-        fulfillment =
-            response.result.fulfillment
-
         webdata =
-            fulfillment.data
+            response.queryResult.webhookPayload
                 |> Maybe.andThen (\d -> d.web)
     in
         case webdata of
@@ -173,50 +170,41 @@ fromDialogFlowV1Response response =
                     :: fromDialogFlowV1FulfillmentWebDataAttachment web.attachment
 
             Nothing ->
-                List.map (\m -> TextMessage m.speech) fulfillment.messages
+                TextMessage response.queryResult.fulfillmentText :: []
 
 
 type ConversationMessage
     = ConversationMessage String Message
 
 
-type alias DialogFlowV1Response =
-    { id : String
-    , timestamp : String
-    , lang : String
-    , result : DialogFlowV1Result
-    , status : DialogFlowV1Status
-    , sessionId : String
+type alias DialogFlowV2Response =
+    { responseId : String
+    , queryResult : DialogFlowV2Result
+    , status : Maybe DialogFlowV2Status
     }
 
 
-type alias DialogFlowV1Result =
-    { source : String
-    , resolvedQuery : String
+type alias DialogFlowV2Result =
+    { queryText : String
     , action : String
-    , actionIncomplete : Bool
-    , fulfillment : DialogFlowV1Fulfillment
-    , score : Float
+    , fulfillmentText : String
+    , fulfillmentMessages : List DialogFlowV2FulfillmentMessages
+    , webhookPayload : Maybe DialogFlowV1FulfillmentData
+    , intentDetectionConfidence : Float
     }
 
 
-type alias DialogFlowV1Status =
-    { code : Int
-    , errorType : String
+type alias DialogFlowV2Status =
+    { message : String }
+
+
+type alias DialogFlowV2FulfillmentMessages =
+    { text : DialogFlowV2FulfillmentMessageText
     }
 
 
-type alias DialogFlowV1Fulfillment =
-    { speech : String
-    , displayText : Maybe String
-    , messages : List DialogFlowV1FulfillmentMessage
-    , data : Maybe DialogFlowV1FulfillmentData
-    }
-
-
-type alias DialogFlowV1FulfillmentMessage =
-    { type_ : Int
-    , speech : String
+type alias DialogFlowV2FulfillmentMessageText =
+    { text : List String
     }
 
 
@@ -270,40 +258,36 @@ type alias DialogFlowV1FulfillmentWebDataCardAttachmentButton =
 -- decoder
 
 
-dialogFlowV1ResponseDecoder : Json.Decode.Decoder DialogFlowV1Response
-dialogFlowV1ResponseDecoder =
-    Json.Decode.map6 DialogFlowV1Response
-        (Json.Decode.field "id" Json.Decode.string)
-        (Json.Decode.field "timestamp" Json.Decode.string)
-        (Json.Decode.field "lang" Json.Decode.string)
-        (Json.Decode.field "result" dialogFlowV1ResultDecoder)
-        (Json.Decode.field "status" dialogFlowV1StatusDecoder)
-        (Json.Decode.field "sessionId" Json.Decode.string)
+dialogFlowV2ResponseDecoder : Json.Decode.Decoder DialogFlowV2Response
+dialogFlowV2ResponseDecoder =
+    Json.Decode.map3 DialogFlowV2Response
+        (Json.Decode.field "responseId" Json.Decode.string)
+        (Json.Decode.field "queryResult" dialogFlowV2ResultDecoder)
+        (Json.Decode.maybe <| Json.Decode.field "webhookStatus" dialogFlowV2StatusDecoder)
 
 
-dialogFlowV1ResultDecoder : Json.Decode.Decoder DialogFlowV1Result
-dialogFlowV1ResultDecoder =
-    Json.Decode.map6 DialogFlowV1Result
-        (Json.Decode.field "source" Json.Decode.string)
-        (Json.Decode.field "resolvedQuery" Json.Decode.string)
+dialogFlowV2ResultDecoder : Json.Decode.Decoder DialogFlowV2Result
+dialogFlowV2ResultDecoder =
+    Json.Decode.map6 DialogFlowV2Result
+        (Json.Decode.field "queryText" Json.Decode.string)
         (Json.Decode.field "action" Json.Decode.string)
-        (Json.Decode.field "actionIncomplete" Json.Decode.bool)
-        (Json.Decode.field "fulfillment" dialogFlowV1FulfillmentDecoder)
-        (Json.Decode.field "score" Json.Decode.float)
-
-
-dialogFlowV1FulfillmentDecoder : Json.Decode.Decoder DialogFlowV1Fulfillment
-dialogFlowV1FulfillmentDecoder =
-    Json.Decode.map4 DialogFlowV1Fulfillment
-        (Json.Decode.field "speech" Json.Decode.string)
-        (Json.Decode.maybe <| Json.Decode.field "displayText" Json.Decode.string)
-        (Json.Decode.field "messages" <|
+        (Json.Decode.field "fulfillmentText" Json.Decode.string)
+        (Json.Decode.field "fulfillmentMessages" <|
             Json.Decode.list <|
-                Json.Decode.map2 DialogFlowV1FulfillmentMessage
-                    (Json.Decode.field "type" Json.Decode.int)
-                    (Json.Decode.field "speech" Json.Decode.string)
+                Json.Decode.map DialogFlowV2FulfillmentMessages
+                    (Json.Decode.field "text" dialogFlowV2FulfillmentMessageTextDecoder)
         )
-        (Json.Decode.maybe <| Json.Decode.field "data" dialogFlowV1FulfillmentDataDecoder)
+        (Json.Decode.maybe <| Json.Decode.field "webhookPayload" dialogFlowV1FulfillmentDataDecoder)
+        (Json.Decode.field "intentDetectionConfidence" Json.Decode.float)
+
+
+dialogFlowV2FulfillmentMessageTextDecoder : Json.Decode.Decoder DialogFlowV2FulfillmentMessageText
+dialogFlowV2FulfillmentMessageTextDecoder =
+    Json.Decode.map DialogFlowV2FulfillmentMessageText
+        (Json.Decode.field "text" <|
+            Json.Decode.list <|
+                Json.Decode.string
+        )
 
 
 dialogFlowV1FulfillmentDataDecoder : Json.Decode.Decoder DialogFlowV1FulfillmentData
@@ -379,11 +363,10 @@ dialogFlowV1FulfillmentWebDataCardAttachmentButtonDecoder =
         (Json.Decode.maybe <| Json.Decode.field "responseValue" Json.Decode.string)
 
 
-dialogFlowV1StatusDecoder : Json.Decode.Decoder DialogFlowV1Status
-dialogFlowV1StatusDecoder =
-    Json.Decode.map2 DialogFlowV1Status
-        (Json.Decode.field "code" Json.Decode.int)
-        (Json.Decode.field "errorType" Json.Decode.string)
+dialogFlowV2StatusDecoder : Json.Decode.Decoder DialogFlowV2Status
+dialogFlowV2StatusDecoder =
+    Json.Decode.map DialogFlowV2Status
+        (Json.Decode.field "message" Json.Decode.string)
 
 
 
@@ -430,7 +413,7 @@ type Msg
     | UpdateVoiceTypingStatus Bool
     | SwitchLanguage Language
     | SendResponseAction String String
-    | DialogFlowResponse (Result Http.Error DialogFlowV1Response)
+    | DialogFlowResponse (Result Http.Error DialogFlowV2Response)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -511,7 +494,7 @@ update msg model =
         DialogFlowResponse (Ok response) ->
             let
                 botMessages =
-                    fromDialogFlowV1Response response
+                    fromDialogFlowV2Response response
                         |> List.map (ConversationMessage "Bot")
             in
                 ( { model | conversation = model.conversation ++ botMessages }
@@ -740,52 +723,64 @@ inlineButtonStyle =
 -- requests
 
 
-sendMessage : String -> String -> String -> String -> Http.Request DialogFlowV1Response
+sendMessage : String -> String -> String -> String -> Http.Request DialogFlowV2Response
 sendMessage accessToken lang sessionID message =
     Http.request
         { method = "POST"
         , headers = [ Http.header "Authorization" ("Bearer " ++ accessToken) ]
-        , url = "https://api.dialogflow.com/v1/query?v=20170712"
+        , url = "https://dialogflow.googleapis.com/v2beta1/projects/restaurantdemo-8f0a0/agent/sessions/" ++ sessionID ++ ":detectIntent"
         , body =
             Http.stringBody "application/json; charset=utf-8" <|
                 Json.Encode.encode 0 <|
                     Json.Encode.object
-                        [ ( "query", Json.Encode.string message )
-                        , ( "lang", Json.Encode.string lang )
-                        , ( "sessionId", Json.Encode.string sessionID )
+                        [ ( "queryInput"
+                          , Json.Encode.object
+                                [ ( "text"
+                                  , Json.Encode.object
+                                        [ ( "text", Json.Encode.string message )
+                                        , ( "languageCode", Json.Encode.string lang )
+                                        ]
+                                  )
+                                ]
+                          )
+                        , ( "session", Json.Encode.string sessionID )
                         ]
-        , expect = Http.expectJson dialogFlowV1ResponseDecoder
+        , expect = Http.expectJson dialogFlowV2ResponseDecoder
         , timeout = Nothing
         , withCredentials = False
         }
 
 
-sendSelection : String -> String -> String -> ( String, String ) -> Http.Request DialogFlowV1Response
+sendSelection : String -> String -> String -> ( String, String ) -> Http.Request DialogFlowV2Response
 sendSelection accessToken lang sessionID ( responseEvent, responseValue ) =
     Http.request
         { method = "POST"
         , headers = [ Http.header "Authorization" ("Bearer " ++ accessToken) ]
-        , url = "https://api.dialogflow.com/v1/query?v=20170712"
+        , url = "https://dialogflow.googleapis.com/v2beta1/projects/restaurantdemo-8f0a0/agent/sessions/" ++ sessionID ++ ":detectIntent"
         , body =
             Http.stringBody "application/json; charset=utf-8" <|
                 Json.Encode.encode 0 <|
                     Json.Encode.object
-                        [ ( "event"
+                        [ ( "queryInput"
                           , Json.Encode.object
-                                [ ( "name", Json.Encode.string responseEvent )
-                                , ( "data"
+                                [ ( "event"
                                   , Json.Encode.object
-                                        [ ( "id"
-                                          , Json.Encode.string responseValue
+                                        [ ( "name", Json.Encode.string responseEvent )
+                                        , ( "parameters"
+                                          , Json.Encode.object
+                                                [ ( "id"
+                                                  , Json.Encode.string responseValue
+                                                  )
+                                                ]
                                           )
+                                        , ( "language_code", Json.Encode.string lang )
                                         ]
                                   )
                                 ]
                           )
-                        , ( "lang", Json.Encode.string lang )
-                        , ( "sessionId", Json.Encode.string sessionID )
+                        , ( "session", Json.Encode.string sessionID )
                         ]
-        , expect = Http.expectJson dialogFlowV1ResponseDecoder
+        , expect = Http.expectJson dialogFlowV2ResponseDecoder
         , timeout = Nothing
         , withCredentials = False
         }
